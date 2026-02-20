@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import JSZip from 'jszip';
 import { XMLValidator } from 'fast-xml-parser';
 import type { ConvertContext, ConvertedArtifact, TextExtractionResult } from '../types.js';
@@ -45,6 +45,43 @@ function parseSectionOrder(name: string): number {
   return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
 }
 
+function normalizeParagraphs(text: string): string[] {
+  const normalized = text.replace(/\r\n/g, '\n');
+  return normalized
+    .split(/\n\s*\n/g)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter((line) => line.length > 0);
+}
+
+function escapeXml(text: string): string {
+  return text
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
+}
+
+function buildSectionXml(paragraphs: string[]): string {
+  const body = paragraphs.length > 0 ? paragraphs : [''];
+
+  const hpParagraphs = body.map((line) => {
+    const escaped = escapeXml(line);
+    return `<hp:p><hp:run><hp:t>${escaped}</hp:t></hp:run></hp:p>`;
+  }).join('');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<hp:section xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">${hpParagraphs}</hp:section>\n`;
+}
+
+async function loadOrCreateZip(sourcePath: string): Promise<JSZip> {
+  try {
+    const buffer = await readFile(sourcePath);
+    return await JSZip.loadAsync(buffer);
+  } catch {
+    return new JSZip();
+  }
+}
+
 export async function extractHwpxText(sourcePath: string): Promise<TextExtractionResult> {
   const buffer = await readFile(sourcePath);
   const zip = await JSZip.loadAsync(buffer);
@@ -81,6 +118,24 @@ export async function extractHwpxText(sourcePath: string): Promise<TextExtractio
     paragraphs: cleaned,
     rawText: cleaned.join('\n\n'),
   };
+}
+
+export async function saveHwpxText(sourcePath: string, text: string, outputPath?: string): Promise<string> {
+  const targetPath = outputPath || sourcePath;
+  const zip = await loadOrCreateZip(sourcePath);
+
+  const sectionNames = Object.keys(zip.files).filter((name) => /(^|\/)contents\/section\d+\.xml$/i.test(name));
+  for (const sectionName of sectionNames) {
+    zip.remove(sectionName);
+  }
+
+  const paragraphs = normalizeParagraphs(text);
+  const sectionXml = buildSectionXml(paragraphs);
+  zip.file('Contents/section0.xml', sectionXml);
+
+  const generated = await zip.generateAsync({ type: 'nodebuffer' });
+  await writeFile(targetPath, generated);
+  return targetPath;
 }
 
 export async function convertHwpx(context: ConvertContext): Promise<ConvertedArtifact> {

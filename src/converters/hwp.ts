@@ -1,7 +1,9 @@
 import { execFile } from 'node:child_process';
+import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import type { ConvertContext, ConvertedArtifact, TextExtractionResult } from '../types.js';
 import { writeConvertedOutput } from './common.js';
+import { saveHwpxText } from './hwpx.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -47,6 +49,15 @@ export async function extractHwpText(sourcePath: string): Promise<TextExtraction
     paragraphs,
     rawText: normalized,
   };
+}
+
+export async function saveHwpTextAsHwpx(sourcePath: string, text: string, outputPath?: string): Promise<string> {
+  const defaultPath = join(dirname(sourcePath), `${basename(sourcePath, '.hwp')}.hwpx`);
+  const requestedPath = outputPath || defaultPath;
+  const targetPath = requestedPath.toLowerCase().endsWith('.hwpx')
+    ? requestedPath
+    : `${requestedPath.replace(/\.[^/.]+$/i, '')}.hwpx`;
+  return saveHwpxText(targetPath, text, targetPath);
 }
 
 export async function convertHwp(context: ConvertContext): Promise<ConvertedArtifact> {

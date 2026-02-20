@@ -1,17 +1,20 @@
 # HWP Converter Extension
 
-Standalone converter service for `hwp` and `hwpx` documents.
+Standalone converter/editor service for `hwp` and `hwpx` documents.
 
-This project follows the existing OfficeExtension request shape used in the app:
+This project follows the OfficeExtension-like API shape used in the app:
 
-- `POST /converter`
 - `GET /healthcheck`
+- `POST /converter`
 - `GET /download/:token`
+- `GET /open?filepath=...`
+- `GET /document?filepath=...`
+- `POST /document/save`
 
 ## Why this exists
 
-The current app flow relies on OfficeExtension/oo-editors for many office conversions.
-This repository provides a dedicated converter path for HWP/HWPX so we can evolve Korean document support independently.
+The app currently relies on OfficeExtension/oo-editors for office flows.
+This repository adds a dedicated HWP/HWPX path so Korean document support can evolve independently.
 
 ## API Contract
 
@@ -49,21 +52,46 @@ Response:
 }
 ```
 
-### `GET /download/:token`
+### `GET /document?filepath=...`
 
-Downloads a temp output file generated from `/converter` when `outputPath` was omitted.
+Reads a `.hwp` or `.hwpx` file and returns extracted text + paragraphs.
+
+### `POST /document/save`
+
+Writes edited text back to a document.
+
+Request:
+
+```json
+{
+  "filePath": "/absolute/path/to/file.hwpx",
+  "text": "updated content"
+}
+```
+
+Behavior:
+
+- `.hwpx`: saved in place (or to `outputPath` if provided)
+- `.hwp`: binary write is not implemented; saves `.hwpx` working copy and returns warning
+- If `.hwp` save receives non-`.hwpx` `outputPath`, it is normalized to `.hwpx`
+
+### `GET /open?filepath=...`
+
+Serves a simple browser editor UI that loads/saves via `/document` APIs.
 
 ## Conversion Support
 
 - `hwpx`:
   - Extracts text from zipped XML sections under `Contents/section*.xml`
   - Converts to `txt/md/html/json/docx/pdf`
+  - Save-back for editing supported
 
 - `hwp`:
   - Uses `hwp5txt` (from `pyhwp`) for text extraction
-  - Then converts extracted text to `txt/md/html/json/docx/pdf`
+  - Converts extracted text to `txt/md/html/json/docx/pdf`
+  - Save-back currently writes `.hwpx` working copy
 
-If `hwp5txt` is missing, `.hwp` conversions fail with an actionable installation error.
+If `hwp5txt` is missing, `.hwp` reads/conversions fail with an actionable installation error.
 
 ## Run
 
@@ -72,9 +100,9 @@ pnpm install
 pnpm dev
 ```
 
-Default port: `8090` (override with `PORT=8080` if you want drop-in replacement behavior).
+Default port: `8090` (override with `PORT=8080` if needed).
 
 ## Notes
 
-- This repo currently provides conversion only.
-- `/open` editor endpoint is intentionally not implemented yet.
+- This service is designed for external/manual installation and run.
+- For app integration, point your app-side HWP extension client to `http://localhost:8090`.
