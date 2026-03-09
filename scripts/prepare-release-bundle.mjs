@@ -8,7 +8,6 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const jarPath = join(rootDir, 'jvm-core', 'target', 'hwp-authoritative-core.jar');
-const pnpmExecutable = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 
 function parseArgs(argv) {
   const args = {};
@@ -33,6 +32,32 @@ async function copyIfPresent(sourcePath, destPath) {
     return;
   }
   await cp(sourcePath, destPath, { recursive: true });
+}
+
+async function installProductionDependencies(outputDir) {
+  const commonOptions = {
+    cwd: outputDir,
+    env: {
+      ...process.env,
+      CI: '1',
+    },
+    maxBuffer: 64 * 1024 * 1024,
+  };
+
+  if (process.platform === 'win32') {
+    await execFileAsync(
+      'cmd.exe',
+      ['/d', '/s', '/c', 'pnpm install --prod --frozen-lockfile --config.node-linker=hoisted'],
+      commonOptions
+    );
+    return;
+  }
+
+  await execFileAsync(
+    'pnpm',
+    ['install', '--prod', '--frozen-lockfile', '--config.node-linker=hoisted'],
+    commonOptions
+  );
 }
 
 async function main() {
@@ -60,18 +85,7 @@ async function main() {
   await mkdir(join(outputDir, 'jvm-core', 'target'), { recursive: true });
   await copyIfPresent(jarPath, join(outputDir, 'jvm-core', 'target', 'hwp-authoritative-core.jar'));
 
-  await execFileAsync(
-    pnpmExecutable,
-    ['install', '--prod', '--frozen-lockfile', '--config.node-linker=hoisted'],
-    {
-      cwd: outputDir,
-      env: {
-        ...process.env,
-        CI: '1',
-      },
-      maxBuffer: 64 * 1024 * 1024,
-    }
-  );
+  await installProductionDependencies(outputDir);
 
   console.log(`Prepared release bundle for ${arch} at ${outputDir}`);
 }
