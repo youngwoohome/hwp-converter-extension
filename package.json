@@ -7,10 +7,13 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
+    "build:jvm": "mvn -q -DskipTests -f jvm-core/pom.xml package",
+    "bundle:release": "node scripts/prepare-release-bundle.mjs",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@xmldom/xmldom": "^0.8.11",
     "docx": "^9.1.1",
     "express": "^4.21.2",
     "fast-xml-parser": "^4.5.1",

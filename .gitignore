@@ -1,5 +1,7 @@
 node_modules/
 dist/
+jvm-core/target/
+release-bundle*/
 *.log
 .DS_Store
 .env

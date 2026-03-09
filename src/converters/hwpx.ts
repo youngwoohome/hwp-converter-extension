@@ -1,8 +1,10 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import JSZip from 'jszip';
 import { XMLValidator } from 'fast-xml-parser';
 import type { ConvertContext, ConvertedArtifact, TextExtractionResult } from '../types.js';
 import { writeConvertedOutput } from './common.js';
+import { convertStructuredHwpxToMarkdown } from '../core/markdownExport.js';
+import { writeValidatedHwpxPackage } from '../core/hwpxPackage.js';
 
 function decodeEntities(value: string): string {
   return value
@@ -78,7 +80,41 @@ async function loadOrCreateZip(sourcePath: string): Promise<JSZip> {
     const buffer = await readFile(sourcePath);
     return await JSZip.loadAsync(buffer);
   } catch {
-    return new JSZip();
+    const zip = new JSZip();
+    const timestamp = new Date().toISOString();
+    zip.file('mimetype', 'application/hwp+zip');
+    zip.file(
+      'META-INF/container.xml',
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>'
+      + '<ocf:container xmlns:ocf="urn:oasis:names:tc:opendocument:xmlns:container" xmlns:hpf="http://www.hancom.co.kr/schema/2011/hpf">'
+      + '<ocf:rootfiles><ocf:rootfile full-path="Contents/content.hpf" media-type="application/hwpml-package+xml"/></ocf:rootfiles>'
+      + '</ocf:container>'
+    );
+    zip.file(
+      'Contents/content.hpf',
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>'
+      + '<opf:package xmlns:opf="http://www.idpf.org/2007/opf/" xmlns:hpf="http://www.hancom.co.kr/schema/2011/hpf" version="" unique-identifier="" id="">'
+      + '<opf:metadata><opf:title/><opf:language>ko</opf:language>'
+      + `<opf:meta name="CreatedDate" content="text">${timestamp}</opf:meta>`
+      + `<opf:meta name="ModifiedDate" content="text">${timestamp}</opf:meta>`
+      + '</opf:metadata>'
+      + '<opf:manifest><opf:item id="section0" href="Contents/section0.xml" media-type="application/xml"/></opf:manifest>'
+      + '<opf:spine><opf:itemref idref="section0"/></opf:spine>'
+      + '</opf:package>'
+    );
+    zip.file(
+      'version.xml',
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>'
+      + '<hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hwpml/2011/version" tagetApplication="WORDPROCESSOR" major="5" minor="0" micro="5" buildNumber="0" xmlVersion="1.4" application="hwp-converter-extension" appVersion="0.1.0"/>'
+    );
+    zip.file(
+      'settings.xml',
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>'
+      + '<ha:HWPApplicationSetting xmlns:ha="http://www.hancom.co.kr/hwpml/2011/app" xmlns:config="urn:oasis:names:tc:opendocument:xmlns:config:1.0">'
+      + '<ha:CaretPosition listIDRef="0" paraIDRef="0" pos="0"/>'
+      + '</ha:HWPApplicationSetting>'
+    );
+    return zip;
   }
 }
 
@@ -133,12 +169,15 @@ export async function saveHwpxText(sourcePath: string, text: string, outputPath?
   const sectionXml = buildSectionXml(paragraphs);
   zip.file('Contents/section0.xml', sectionXml);
 
-  const generated = await zip.generateAsync({ type: 'nodebuffer' });
-  await writeFile(targetPath, generated);
+  await writeValidatedHwpxPackage(targetPath, zip);
   return targetPath;
 }
 
 export async function convertHwpx(context: ConvertContext): Promise<ConvertedArtifact> {
+  if (context.targetFormat === 'md') {
+    return convertStructuredHwpxToMarkdown(context);
+  }
+
   const extracted = await extractHwpxText(context.sourcePath);
   return writeConvertedOutput({
     context,

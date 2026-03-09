@@ -7,9 +7,9 @@ import { nanoid } from 'nanoid';
 import { Document, Packer, Paragraph } from 'docx';
 import PDFDocument from 'pdfkit';
 import type { ConvertContext, ConvertedArtifact, TargetFormat } from '../types.js';
-import { ensureParentDirectory, normalizeAbsolutePath } from '../utils/files.js';
+import { ensureParentDirectory, normalizeAbsolutePath, writeFileAtomically } from '../utils/files.js';
 
-const TARGET_EXTENSIONS: Record<TargetFormat, string> = {
+export const TARGET_EXTENSIONS: Record<TargetFormat, string> = {
   txt: '.txt',
   md: '.md',
   html: '.html',
@@ -25,7 +25,7 @@ export interface WriteOutputInput {
   metadata?: Record<string, unknown>;
 }
 
-function resolveOutputPath(context: ConvertContext): string {
+export function resolveOutputPath(context: ConvertContext): string {
   const targetExt = TARGET_EXTENSIONS[context.targetFormat];
 
   if (context.requestedOutputPath && context.requestedOutputPath.trim().length > 0) {
@@ -100,11 +100,11 @@ export async function writeConvertedOutput(input: WriteOutputInput): Promise<Con
 
   switch (context.targetFormat) {
     case 'txt': {
-      await writeFile(outputPath, `${paragraphs.join('\n\n')}\n`, 'utf-8');
+      await writeFileAtomically(outputPath, Buffer.from(`${paragraphs.join('\n\n')}\n`, 'utf-8'));
       break;
     }
     case 'md': {
-      await writeFile(outputPath, `${paragraphs.join('\n\n')}\n`, 'utf-8');
+      await writeFileAtomically(outputPath, Buffer.from(`${paragraphs.join('\n\n')}\n`, 'utf-8'));
       break;
     }
     case 'html': {
@@ -122,7 +122,7 @@ export async function writeConvertedOutput(input: WriteOutputInput): Promise<Con
         '</body>',
         '</html>',
       ].join('\n');
-      await writeFile(outputPath, `${html}\n`, 'utf-8');
+      await writeFileAtomically(outputPath, Buffer.from(`${html}\n`, 'utf-8'));
       break;
     }
     case 'json': {
@@ -134,7 +134,7 @@ export async function writeConvertedOutput(input: WriteOutputInput): Promise<Con
         paragraphs,
         metadata: metadata || {},
       };
-      await writeFile(outputPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
+      await writeFileAtomically(outputPath, Buffer.from(`${JSON.stringify(payload, null, 2)}\n`, 'utf-8'));
       break;
     }
     case 'docx': {

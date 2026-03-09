@@ -1,108 +1,189 @@
 # HWP Converter Extension
 
-Standalone converter/editor service for `hwp` and `hwpx` documents.
+`hwp-converter-extension` is a standalone local service for working with `HWP` and `HWPX` documents.
 
-This project follows the OfficeExtension-like API shape used in the app:
+It is designed for host apps, agent workflows, and document automation systems that need to:
 
-- `GET /healthcheck`
+- open Korean office documents outside Hancom Office
+- create safe editable `.hwpx` working copies from `.hwp`
+- analyze existing forms and templates
+- fill placeholders and tables deterministically
+- replace, insert, move, and delete image instances
+- export structured Markdown, HTML, JSON, PDF, and DOCX derivatives
+- keep checkpoints and recover from failed writes
+
+This project is best thought of as an **HWP/HWPX automation and working-copy engine**, not a full native Hancom Office replacement.
+
+## What You Can Build With It
+
+- an AI agent that fills Korean government or enterprise forms and exports `.hwpx`
+- a Mac or browser-based app that can open `.hwp/.hwpx` and hand off the final file to Hancom Office on Windows
+- a template engine for batch-generating notices, reports, minutes, or tax forms
+- a Markdown extraction pipeline for knowledge systems and LLM workflows
+- a host-side extension product such as `ooeditor-hwp`
+
+## Typical Workflow
+
+1. Open a `.hwp` or `.hwpx` document.
+2. If the source is `.hwp`, create a managed editable `.hwpx` working copy.
+3. Analyze the document or a reference template.
+4. Apply deterministic mutations:
+   - placeholder fill
+   - explicit block or cell updates
+   - repeated table row regions
+   - image insert, replace, delete, or placement updates
+5. Save with checkpoints and verification.
+6. Export `.hwpx`, `.pdf`, `Markdown + assets + diagnostics`, or other derivatives.
+7. Optionally finish the last manual edits in Hancom Office.
+
+## Current Capabilities
+
+### Documents
+
+- `POST /document/open`
+- `POST /document/fork-editable-copy`
+- `POST /document/create`
+- `POST /document/save`
+- `GET /document?documentId=...`
+- `GET /document/features?documentId=...`
+- `GET /document/checkpoints?documentId=...`
+- `POST /document/recover`
+
+### Template Automation
+
+- `GET /document/templates`
+- `POST /document/analyze-reference`
+- `POST /document/analyze-repeat-region`
+- `POST /document/fill-template`
+
+### Conversion
+
 - `POST /converter`
 - `GET /download/:token`
+
+### Embedded Viewer Surface
+
 - `GET /open?filepath=...`
-- `GET /document?filepath=...`
-- `POST /document/save`
+- `GET /healthcheck`
 
-## Why this exists
+## What Makes This Different
 
-The app currently relies on OfficeExtension/oo-editors for office flows.
-This repository adds a dedicated HWP/HWPX path so Korean document support can evolve independently.
+- `.hwp` is treated as a source format, not as an unsafe in-place write target
+- `.hwpx` is the canonical editable format
+- edits are deterministic and fail-closed
+- complex tables are handled through structured row-band analysis instead of naive text replacement
+- image edits happen at instance or asset scope with explicit locators
+- Markdown export is structure-aware and can preserve complex tables as HTML when needed
 
-## API Contract
+## What This Is Not
 
-### `GET /healthcheck`
+- not a native Hancom Office clone
+- not a promise of perfect round-trip fidelity for every document feature
+- not a generic WYSIWYG office suite
 
-Returns plain text `true`.
+The intended product model is:
 
-### `POST /converter`
+- automate 80-90% of repetitive HWP/HWPX work here
+- export a clean `.hwpx`
+- finish the last manual polish in Hancom Office when needed
 
-Request body (OfficeExtension-compatible):
+## API Example
+
+### Convert to Markdown with diagnostics
 
 ```json
 {
   "filetype": "hwpx",
-  "outputtype": "pdf",
+  "outputtype": "md",
   "filePath": "/absolute/path/to/input.hwpx",
-  "outputPath": "/absolute/path/to/output.pdf"
+  "outputPath": "/absolute/path/to/output.md",
+  "markdownMode": "fidelity",
+  "includeDiagnostics": true
 }
 ```
 
-Fields:
-
-- `filetype`: source type (`hwp` or `hwpx`)
-- `outputtype`: target type (`txt`, `md`, `html`, `json`, `docx`, `pdf`)
-- `filePath` or `url`: source input
-- `outputPath` (optional): when omitted, a temp file is created and `url` is returned
-
-Response:
+### Fill a template deterministically
 
 ```json
 {
-  "success": true,
-  "outputPath": "/tmp/hwp-converter-...pdf",
-  "url": "http://localhost:8090/download/<token>"
+  "documentId": "doc_123",
+  "requiredPlaceholders": ["[Meeting Title]"],
+  "values": {
+    "[Meeting Title]": "Q1 Planning Meeting"
+  },
+  "fills": [
+    { "target": "0:3", "value": "Alice, Bob, Carol" }
+  ],
+  "tableRepeats": [
+    {
+      "tableBlockId": "0:1",
+      "templateRowIndex": 6,
+      "templateEndRowIndex": 8,
+      "boundaryPolicy": "split_boundary_merges",
+      "rows": [
+        ["A", "Seoul", "1000"],
+        ["B", "Busan", "2000"]
+      ]
+    }
+  ]
 }
 ```
 
-### `GET /document?filepath=...`
-
-Reads a `.hwp` or `.hwpx` file and returns extracted text + paragraphs.
-
-### `POST /document/save`
-
-Writes edited text back to a document.
-
-Request:
-
-```json
-{
-  "filePath": "/absolute/path/to/file.hwpx",
-  "text": "updated content"
-}
-```
-
-Behavior:
-
-- `.hwpx`: saved in place (or to `outputPath` if provided)
-- `.hwp`: binary write is not implemented; saves `.hwpx` working copy and returns warning
-- If `.hwp` save receives non-`.hwpx` `outputPath`, it is normalized to `.hwpx`
-
-### `GET /open?filepath=...`
-
-Serves a simple browser editor UI that loads/saves via `/document` APIs.
-
-## Conversion Support
-
-- `hwpx`:
-  - Extracts text from zipped XML sections under `Contents/section*.xml`
-  - Converts to `txt/md/html/json/docx/pdf`
-  - Save-back for editing supported
-
-- `hwp`:
-  - Uses `hwp5txt` (from `pyhwp`) for text extraction
-  - Converts extracted text to `txt/md/html/json/docx/pdf`
-  - Save-back currently writes `.hwpx` working copy
-
-If `hwp5txt` is missing, `.hwp` reads/conversions fail with an actionable installation error.
-
-## Run
+## Local Development
 
 ```bash
 pnpm install
-pnpm dev
+pnpm build
+pnpm start
 ```
 
-Default port: `8090` (override with `PORT=8080` if needed).
+Default server port is `38124`.
 
-## Notes
+If you are developing the JVM import core too:
 
-- This service is designed for external/manual installation and run.
-- For app integration, point your app-side HWP extension client to `http://localhost:8090`.
+```bash
+cd jvm-core
+mvn package
+```
+
+## Release Bundles
+
+This repo includes a GitHub Actions workflow that builds downloadable release bundles for:
+
+- `darwin-arm64`
+- `darwin-x64`
+- `windows-x64`
+
+Release flow:
+
+1. push your changes
+2. create and push a tag such as `v0.1.0`
+3. GitHub Actions builds the service bundle
+4. GitHub Release assets are published as:
+   - `hwp-converter-extension-darwin-arm64.zip`
+   - `hwp-converter-extension-darwin-x64.zip`
+   - `hwp-converter-extension-windows-x64.zip`
+
+Those assets are suitable for host apps that download and install the extension from GitHub Releases.
+
+## Public Repo Notes
+
+This repository contains the extension and its document engine only.
+It does **not** need to include any host app code.
+
+Typical integration model:
+
+- host app downloads a release bundle
+- host app starts the service as a local child process
+- host app calls the localhost API for open, fill, save, convert, and recovery flows
+
+## Documentation
+
+- [Production HWP/HWPX Architecture](./docs/PRODUCTION_HWP_HWPX_ARCHITECTURE.md)
+- [HWP/HWPX Service API Specification](./docs/HWP_HWPX_API_SPEC.md)
+- [HWP/HWPX V1 Work Breakdown](./docs/HWP_HWPX_V1_WORK_BREAKDOWN.md)
+- [Hancom-Primary Integration Architecture](./docs/HANCOM_PRIMARY_INTEGRATION_ARCHITECTURE.md)
+- [HWPX-Rekian Adoption Notes](./docs/HWPX_REKIAN_ADOPTION_NOTES.md)
+- [Merged Table Editing Strategy](./docs/MERGED_TABLE_EDITING_STRATEGY.md)
+- [ooeditor-hwp Product Architecture](./docs/OOEDITOR_HWP_PRODUCT_ARCHITECTURE.md)
+- [ooeditor-hwp Host Integration Plan](./docs/OOEDITOR_HWP_HOST_INTEGRATION_PLAN.md)

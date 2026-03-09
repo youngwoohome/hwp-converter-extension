@@ -1,0 +1,83 @@
+name: Release Bundles
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag name to attach assets to
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            arch: darwin-arm64
+          - os: macos-13
+            arch: darwin-x64
+          - os: windows-2022
+            arch: windows-x64
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build TypeScript service
+        run: pnpm build
+
+      - name: Build JVM core
+        run: pnpm build:jvm
+
+      - name: Prepare bundle directory
+        run: node scripts/prepare-release-bundle.mjs --arch "${{ matrix.arch }}" --output-dir release-bundle
+
+      - name: Archive bundle (macOS)
+        if: runner.os != 'Windows'
+        run: |
+          cd release-bundle
+          zip -r "${GITHUB_WORKSPACE}/hwp-converter-extension-${{ matrix.arch }}.zip" .
+
+      - name: Archive bundle (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "release-bundle\*" -DestinationPath "hwp-converter-extension-${{ matrix.arch }}.zip" -Force
+
+      - name: Publish release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: hwp-converter-extension-${{ matrix.arch }}.zip
+          generate_release_notes: true

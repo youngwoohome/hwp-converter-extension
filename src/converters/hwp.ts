@@ -1,9 +1,13 @@
 import { execFile } from 'node:child_process';
+import { unlink } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import type { ConvertContext, ConvertedArtifact, TextExtractionResult } from '../types.js';
 import { writeConvertedOutput } from './common.js';
 import { saveHwpxText } from './hwpx.js';
+import { convertHwpToHwpxWithJvm } from '../core/jvmCore.js';
+import { convertStructuredHwpxToMarkdown } from '../core/markdownExport.js';
+import { writeTempFile } from '../utils/files.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -61,6 +65,30 @@ export async function saveHwpTextAsHwpx(sourcePath: string, text: string, output
 }
 
 export async function convertHwp(context: ConvertContext): Promise<ConvertedArtifact> {
+  if (context.targetFormat === 'md') {
+    const tempHwpxPath = await writeTempFile(Buffer.alloc(0), '.hwpx');
+    try {
+      await convertHwpToHwpxWithJvm(context.sourcePath, tempHwpxPath);
+      const converted = await convertStructuredHwpxToMarkdown({
+        ...context,
+        sourcePath: tempHwpxPath,
+      });
+      await unlink(tempHwpxPath).catch(() => undefined);
+      return {
+        ...converted,
+        warnings: [
+          ...(converted.warnings ?? []),
+          {
+            code: 'HWP_IMPORTED_TO_HWPX_FOR_MARKDOWN',
+            message: 'Markdown was exported from an imported HWPX working model to preserve structure such as tables where possible.',
+          },
+        ],
+      };
+    } catch {
+      await unlink(tempHwpxPath).catch(() => undefined);
+    }
+  }
+
   const extracted = await extractHwpText(context.sourcePath);
   return writeConvertedOutput({
     context,
